@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<title>Game</title>		
+</head>
+
+<body>
+	<audio src="sounds/step01.wav" id='step01'></audio>
+	<audio src="sounds/jump01.wav" id='jump01'></audio>
+	<audio src="sounds/throw01.mp3" id='throw01'></audio>	
+	<audio src="sounds/boom01.wav" id='boom01'></audio>	
+
+	<script src="engine.js"></script>
+	<script src="assets.js"></script>
+
+	<canvas id="canvas"></canvas>
+
+	<p>Управление:<br/>Бег - стрелки влево-вправо<br/>Метнуть кинжал - D<br/>Прыжок - пробел</p>
+
+<script>
+var step01 = document.getElementById('step01');
+var jump01 = document.getElementById('jump01');
+var throw01 = document.getElementById('throw01');
+var boom01 = document.getElementById('boom01');
+
+var cnv = null;
+var ctx = null;
+
+var one = null;
+var two = null;
+var three = null;
+var four = null;
+var five = null;
+
+var img = null;					 //Спрайтлист.
+
+var me = null;          //Игрок.
+var respawnX = null;    //Координаты респавна. 
+var respawnY = null;
+
+var mapObjs     = [];  //Все объекты мира кроме Игрока
+var collideObjs = [];  //Массив объектов, с которыми столкнулся Игрок
+var daggerObjs  = [];  //Кинжалы
+var itemObjs = [];     //Подбираемые предметы
+var bombs = [];        //Мины
+var turrets = [];      //Турели
+
+var frameRate = 1000/60; // 60 ferps/sec.
+var gameLoop = null;
+
+var mX = null;           //Координаты курсора мыши.
+var mY = null;  
+
+//Камера==================
+var onStart = false;
+
+//Координаты для отрисовки Игрока в начале игры куда должна подъехать камера
+var startPosX = null;
+var startPosY = null;
+
+//Координатная рамка камеры
+var upperBorder = null;
+var lowerBorder = null;
+var leftBorder = null;
+var rightBorder = null;
+
+//Координаты границ карты
+var mapUpperBorder = null;
+var mapLowerBorder = null;
+var mapLeftBorder = null;
+var mapRightBorder = null;
+//========================
+
+var mechNum = 0;          
+
+//Скорости, пикс/итерация; расстояния.
+var gravBoost = 0.27;    //Игрок. Модификатор скорости падения. 0.17
+var maxGravStep = 4.6;     //Игрок. Максимальная скорость падения.
+
+var jumpStep = -4.5;     //Игрок. Начальная скорость прыжка. -5.5
+
+var horStep = 2;         //Игрок. Боковая скорость. Было 2
+
+var maxStrikeDist = 96;  //Игрок. Максимальное расстояние в режиме Суперудар.
+var strikeStep = 8;      //Игрок. Скорость в режиме Суперудар.
+
+var slidex = 6;
+var slidey = -1.6;
+
+var daggerStep = 4;      //Кинжал. Скорость.
+
+
+//======================================================
+//Инициализация.
+//======================================================
+window.onload = init;
+function init() {
+
+	cnv = document.getElementById('canvas');
+	ctx = cnv.getContext('2d')
+	cnv.width = 640;  	//window.innerWidth 
+	cnv.height = 400; 	//window.innerHeight
+	cnv.style.backgroundColor = '#262625';	
+
+	//Инициализация координат Игрока
+	startPosX = 100;
+	startPosY = 250;
+	respawnX = 32*2;   //32*2
+	respawnY = 32*12; 	//32*12
+
+	cnv.onmousemove = eng.getMouseCoords;
+	cnv.onclick = function() {
+		me.Vy = 0;
+		me.dx = mX - eng.camera.x;
+		me.dy = mY - eng.camera.y;
+	};
+
+	img = new Image();
+	img.onload = eng.createWorld;
+	img.src = 'images/spritesheet.png';
+ 
+	document.addEventListener('keydown', eng.keyPressHandler.keyIsDown);
+	document.addEventListener('keyup', eng.keyPressHandler.keyIsUp);
+  /*
+	window.setTimeout(function() {
+		me.hpCur = 0;
+	}, 2000);
+	*/
+};
+
+
+//======================================================
+//Главная функция.
+//======================================================
+var game = function() {	
+	
+	mapBordersCalculation();    //Рассчет границ карты (надо единожды)
+	cameraBordersCalculation(); //Рассчет координатной сетки камеры (надо единожды)
+
+	//Очистка холста
+	ctx.clearRect(0, 0, cnv.width, cnv.height);		
+
+	//Управление камерой
+	eng.camera.control(); 
+
+	//Отрисовка всех элементов
+	eng.draw.map();
+	eng.draw.items();
+	eng.draw.bombs();
+	eng.draw.daggers();
+	//eng.draw.bombs();
+	eng.draw.me();
+	//eng.draw.map(); //чтобы шипы были поверх Игрока
+	//eng.draw.cameraCoordGrid();	
+	eng.statusBar.drawHP();
+	eng.statusBar.drawMech();
+
+
+	requestAnimationFrame(game);
+};
+
+
+
+function mapBordersCalculation() {
+	if (mapLeftBorder === null && mapRightBorder === null && 
+		  mapLowerBorder === null && mapUpperBorder === null) {
+
+		mapLeftBorder = 10;
+		mapRightBorder = 10;
+		mapLowerBorder = 0;
+		mapUpperBorder = 0;
+
+		for (var i in mapObjs) {
+
+			if (mapObjs[i].dx < mapLeftBorder) {
+				mapLeftBorder = mapObjs[i].dx;
+			}
+
+			if (mapObjs[i].dx + mapObjs[i].dw > mapRightBorder) {
+				mapRightBorder = mapObjs[i].dx + mapObjs[i].dw;
+			}
+
+			if (mapObjs[i].dy + mapObjs[i].dh > mapLowerBorder) {
+				mapLowerBorder = mapObjs[i].dy + mapObjs[i].dh;
+			}
+
+			if (mapObjs[i].dy < mapUpperBorder) {
+				mapUpperBorder = mapObjs[i].dy;
+			}
+
+		}
+	} else return;
+};
+
+function cameraBordersCalculation() {
+	if (upperBorder === null && lowerBorder === null && leftBorder === null && rightBorder === null) {
+
+	upperBorder = cnv.height/4 + 70;
+	lowerBorder = (cnv.height/4)*3 - 70;
+	leftBorder = 32*9;
+	rightBorder = cnv.width - 32*10;
+
+	} else return;
+};
+
+
+</script>
+</body>
+</html>
